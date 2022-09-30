@@ -1,0 +1,46 @@
+.masonry-wrapper {
+  height: 80vh;
+  position: relative;
+}
+
+.masonry-wrapper::before {
+  content: '';
+  background: linear-gradient(-90deg, transparent, white);
+  height: calc(100% - 16px);
+  width: 100px;
+  display: block;
+  top: 0;
+  left: 1100px;
+  position: absolute;
+}
+
+.masonry-wrapper::after {
+  content: '';
+  background: linear-gradient(90deg, transparent, white);
+  height: calc(100% - 16px);
+  width: 100px;
+  display: block;
+  top: 0;
+  left: 1100px;
+  position: absolute;
+}
+
+.masonry {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  height: 100%;
+  max-width: 1200px;
+  overflow-x: auto;
+  position: relative;
+  margin-left: -100px;
+  padding: 0 100px;
+}
+
+.masonry > div {
+  width: 300px;
+  margin: 0 1rem 1rem 0;
+  text-align: center;
+  font-weight: bold;
+  font-size: 2rem;
+}
