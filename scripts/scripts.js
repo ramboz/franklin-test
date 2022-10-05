@@ -378,7 +378,7 @@ export async function loadBlock(block, eager = false) {
 
     if (window.hlx.experiment && window.hlx.experiment.run) {
       const { experiment } = window.hlx;
-      if (experiment.selectedVariant !== experiment.variantNames[0] && experiment.blocks.includes(blockName)) {
+      if (experiment.selectedVariant !== experiment.variantNames[0] && experiment.blocks && experiment.blocks.includes(blockName)) {
         if (/^https?:\/\//.test(variant.link)) {
           const { origin, pathname } = new URL(variant.link);
           if (pathname !== '/') {
@@ -398,12 +398,12 @@ export async function loadBlock(block, eager = false) {
 
     try {
       const cssLoaded = new Promise((resolve) => {
-        loadCSS(`${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.css`, resolve);
+        loadCSS(cssPath, resolve);
       });
       const decorationComplete = new Promise((resolve) => {
         (async () => {
           try {
-            const mod = await import(`../blocks/${blockName}/${blockName}.js`);
+            const mod = await import(jsPath);
             if (mod.default) {
               await mod.default(block, blockName, document, eager);
             }
@@ -748,7 +748,7 @@ function parseExperimentConfig(json) {
 
     config.variantNames = [];
     config.variants = {};
-    json.experiences.data.forEach((row) => {
+    json.variants.data.forEach((row) => {
       const { Name, Label, Split, Link } = row;
       const variantName = toCamelCase(Name);
       config.variantNames.push(variantName);
@@ -921,37 +921,37 @@ async function applyExperiments(config) {
     const usp = new URLSearchParams(window.location.search);
     const [forcedExperiment, forcedVariant] = usp.has(config.queryParameter) ? usp.get(config.queryParameter).split('/') : [];
     
-    const config = await getExperimentConfig(experiment, config);
-    console.debug(config);
-    if (toCamelCase(config.status) !== 'active' && !forcedExperiment) {
+    const experimentConfig = await getExperimentConfig(experiment, config);
+    console.debug(experimentConfig);
+    if (toCamelCase(experimentConfig.status) !== 'active' && !forcedExperiment) {
       return;
     }
 
-    config.run = forcedExperiment || isValidAudience(toClassName(config.audience));
+    experimentConfig.run = forcedExperiment || isValidAudience(toClassName(experimentConfig.audience));
     window.hlx = window.hlx || {};
-    window.hlx.experiment = config;
-    console.debug('run', config.run, config.audience);
-    if (!config.run) {
+    window.hlx.experiment = experimentConfig;
+    console.debug('run', experimentConfig.run, experimentConfig.audience);
+    if (!experimentConfig.run) {
       return;
     }
 
-    const forced = forcedVariant || getSavedExperimentVariant(config.id);
-    if (forced && config.variantNames.includes(forced)) {
-      config.selectedVariant = forced;
+    const forced = forcedVariant || getSavedExperimentVariant(experimentConfig.id);
+    if (forced && experimentConfig.variantNames.includes(forced)) {
+      experimentConfig.selectedVariant = forced;
     } else {
-      config.selectedVariant = getRandomVariant(config);
+      experimentConfig.selectedVariant = getRandomVariant(experimentConfig);
     }
 
-    saveSelectedExperimentVariant(config.id, config.selectedVariant);
-    sampleRUM('experiment', { source: config.id, target: config.selectedVariant });
+    saveSelectedExperimentVariant(experimentConfig.id, experimentConfig.selectedVariant);
+    sampleRUM('experiment', { source: experimentConfig.id, target: experimentConfig.selectedVariant });
     console.debug(`running experiment (${window.hlx.experiment.id}) -> ${window.hlx.experiment.selectedVariant}`);
 
-    if (config.selectedVariant === config.variantNames[0]) {
+    if (experimentConfig.selectedVariant === experimentConfig.variantNames[0]) {
       return;
     }
 
     const currentPath = window.location.pathname;
-    const { link } = config.variants[config.variantNames[0]];
+    const { link } = experimentConfig.variants[experimentConfig.variantNames[0]];
     if (link === currentPath || !link) {
       return;
     }
@@ -974,7 +974,7 @@ async function applyExperiments(config) {
 async function loadEager(doc) {
   console.log('evt: eager');
   await applyExperiments({
-    basePath: '/experiments',
+    basePath: '/franklin-experiments',
     configFile: 'franklin-experiment',
     parser: parseExperimentConfig,
     queryParameter: 'experiment'
