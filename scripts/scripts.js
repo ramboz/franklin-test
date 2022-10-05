@@ -379,15 +379,15 @@ export async function loadBlock(block, eager = false) {
     if (window.hlx.experiment && window.hlx.experiment.run) {
       const { experiment } = window.hlx;
       if (experiment.selectedVariant !== experiment.variantNames[0] && experiment.blocks && experiment.blocks.includes(blockName)) {
+        const variant = experiment.variants[experiment.selectedVariant];
         if (/^https?:\/\//.test(variant.link)) {
           const { origin, pathname } = new URL(variant.link);
           if (pathname !== '/') {
             await replaceInner(variant.link, block);
           }
           if (origin !== window.location.origin) {
-            const basePath = new URL(window.hlx.codeBasePath).pathname;
-            cssPath = `${origin}${basePath}/blocks/${blockName}/${blockName}.css`;
-            jsPath = `${origin}${basePath}/blocks/${blockName}/${blockName}.js`;
+            cssPath = `${origin}${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.css`;
+            jsPath = `${origin}${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.js`;
           }
         } else {
           cssPath = `${window.hlx.codeBasePath}${experiment.basePath}/${variant.link}/${blockName}.css`;
