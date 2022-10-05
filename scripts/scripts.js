@@ -10,6 +10,17 @@
  * governing permissions and limitations under the License.
  */
 
+document.addEventListener('DOMContentLoaded', (ev) => console.log('evt: ' + ev.type));
+window.onload = (ev) => console.log('evt: ' + ev.type);
+console.log('evt: start parsing');
+const observer = new PerformanceObserver((list) => {
+  let perfEntries = list.getEntries();
+  let lastEntry = perfEntries[perfEntries.length - 1];
+  console.log(perfEntries);
+  // Process the latest candidate for largest contentful paint
+});
+observer.observe({entryTypes: ['largest-contentful-paint']});
+
 /**
  * log RUM if part of the sample.
  * @param {string} checkpoint identifies the checkpoint in funnel
@@ -362,6 +373,29 @@ export async function loadBlock(block, eager = false) {
   if (!(block.getAttribute('data-block-status') === 'loading' || block.getAttribute('data-block-status') === 'loaded')) {
     block.setAttribute('data-block-status', 'loading');
     const blockName = block.getAttribute('data-block-name');
+    let cssPath = `${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.css`;
+    let jsPath = `${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.js`;
+
+    if (window.hlx.experiment && window.hlx.experiment.run) {
+      const { experiment } = window.hlx;
+      if (experiment.selectedVariant !== experiment.variantNames[0] && experiment.blocks.includes(blockName)) {
+        if (/^https?:\/\//.test(variant.link)) {
+          const { origin, pathname } = new URL(variant.link);
+          if (pathname !== '/') {
+            await replaceInner(variant.link, block);
+          }
+          if (origin !== window.location.origin) {
+            const basePath = new URL(window.hlx.codeBasePath).pathname;
+            cssPath = `${origin}${basePath}/blocks/${blockName}/${blockName}.css`;
+            jsPath = `${origin}${basePath}/blocks/${blockName}/${blockName}.js`;
+          }
+        } else {
+          cssPath = `${window.hlx.codeBasePath}${experiment.basePath}/${variant.link}/${blockName}.css`;
+          jsPath = `${window.hlx.codeBasePath}${experiment.basePath}/${variant.link}/${blockName}.js`;
+        }
+      }
+    }
+
     try {
       const cssLoaded = new Promise((resolve) => {
         loadCSS(`${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.css`, resolve);
@@ -549,9 +583,10 @@ async function waitForLCP() {
   await new Promise((resolve) => {
     if (lcpCandidate && !lcpCandidate.complete) {
       lcpCandidate.setAttribute('loading', 'eager');
-      lcpCandidate.addEventListener('load', () => resolve());
-      lcpCandidate.addEventListener('error', () => resolve());
+      lcpCandidate.addEventListener('load', () => console.log('evt: LCP') || resolve());
+      lcpCandidate.addEventListener('error', () => console.log('evt: LCP') || resolve());
     } else {
+      console.log('evt: LCP');
       resolve();
     }
   });
@@ -586,6 +621,7 @@ export function initHlx() {
 }
 
 initHlx();
+console.log('evt: hlx init');
 
 /*
  * ------------------------------------------------------------
@@ -663,9 +699,286 @@ export function decorateMain(main) {
 }
 
 /**
+ * Gets the experiment name, if any for the page based on env, useragent, queyr params
+ * @returns {string} experimentid
+ */
+ export function getExperiment() {
+  if (window.location.hash) {
+    return null;
+  }
+
+  if (navigator.userAgent.match(/bot|crawl|spider/i)) {
+    return null;
+  }
+
+  return toClassName(getMetadata('experiment')) || null;
+}
+
+/**
+ * Parses the experimentation configuration sheet and creates an internal model.
+ * 
+ * Output model is expected to have the following structure:
+ *      {
+ *        label: <string>,
+ *        blocks: [<string>]
+ *        audience: Desktop | Mobile,
+ *        status: Active | On | True | Yes,
+ *        variantNames: [<string>],
+ *        variants: {
+ *          [variantName]: {
+ *            label: <string>
+ *            percentageSplit: <number 0-1>,
+ *            link: <string>,
+ *          }
+ *        }
+ *      };
+ */
+function parseExperimentConfig(json) {
+  const config = {};
+  try {
+
+    json.settings.data.forEach((row) => {
+      const prop = toCamelCase(row.Name);
+      if (['audience', 'label', 'status'].includes(prop)) {
+        config[prop] = row.Value;
+      } else if (prop === 'blocks') {
+        config[prop] = row.Value.split(/[,\n]/);
+      }
+    });
+
+    config.variantNames = [];
+    config.variants = {};
+    json.experiences.data.forEach((row) => {
+      const { Name, Label, Split, Link } = row;
+      const variantName = toCamelCase(Name);
+      config.variantNames.push(variantName);
+      config.variants[variantName] = {
+        label: Label,
+        percentageSplit: Split,
+        link: Link.trim(),
+      };
+    });
+    return config;
+  } catch (e) {
+    console.log('error parsing experiment config:', e);
+  }
+  return null;
+}
+
+/**
+ * Gets experiment config from the manifest and transforms it to more easily
+ * consumable structure.
+ *
+ * the manifest consists of two sheets "settings" and "experiences", by default
+ *
+ * "settings" is applicable to the entire test and contains information
+ * like "Audience", "Status" or "Blocks".
+ *
+ * "experience" hosts the experiences in rows, consisting of:
+ * a "Percentage Split", "Label" and a set of "Links".
+ *
+ *
+ * @param {string} experimentId
+ * @param {object} cfg
+ * @returns {object} containing the experiment manifest
+ */
+export async function getExperimentConfig(experimentId, cfg) {
+  const path = `${cfg.basePath}/${experimentId}/${cfg.configFile}.json`;
+  try {
+    const resp = await fetch(path);
+    if (!resp.ok) {
+      console.log('error loading experiment config:', resp);
+      return null;
+    }
+    const json = await resp.json();
+    const config = parseExperimentConfig(json, cfg);
+    config.id = experimentId;
+    config.manifest = path;
+    config.basePath = `${cfg.basePath}/${experimentId}`
+    return config;
+  } catch (e) {
+    console.log(`error loading experiment manifest: ${path}`, e);
+  }
+  return null;
+}
+
+/**
+ * this is an extensible stub to take on audience mappings
+ * @param {string} audience
+ * @return {boolean} is member of this audience
+ */
+function isValidAudience(audience) {
+  if (audience === 'mobile') {
+    return window.innerWidth < 600;
+  }
+  if (audience === 'desktop') {
+    return window.innerWidth >= 600;
+  }
+  return true;
+}
+
+/**
+ * gets the variant id that this visitor has been assigned to if any
+ * @param {string} experimentId
+ * @return {string} assigned variant or empty string if none set
+ */
+
+function getSavedExperimentVariant(experimentId) {
+  const experimentsStr = localStorage.getItem('hlx-experiments');
+  if (!experimentsStr) {
+    return null;
+  }
+
+  const experiments = JSON.parse(experimentsStr);
+  return experiments[experimentId] ? experiments[experimentId].variant : null;
+}
+
+/**
+ * sets/updates the variant id that is assigned to this visitor,
+ * also cleans up old variant ids
+ * @param {string} experimentId
+ * @param {variant} variant
+ */
+function saveSelectedExperimentVariant(experimentId, variant) {
+  const experimentsStr = localStorage.getItem('hlx-experiments');
+  const experiments = experimentsStr ? JSON.parse(experimentsStr) : {};
+
+  const now = new Date();
+  const expKeys = Object.keys(experiments);
+  expKeys.forEach((key) => {
+    const date = new Date(experiments[key].date);
+    if (now - date > (1000 * 86400 * 30)) {
+      delete experiments[key];
+    }
+  });
+  const [date] = now.toISOString().split('T');
+
+  experiments[experimentId] = { variant, date };
+  localStorage.setItem('hlx-experiments', JSON.stringify(experiments));
+}
+
+/**
+ * Randomization function that returns one variant from the list based on the
+ * splits that have been configured.
+ */
+function getRandomVariant(config) {
+  let random = Math.random();
+  let i = config.variantNames.length;
+  while (random > 0 && i > 0) {
+    i -= 1;
+    console.debug(random, i);
+    random -= +config.variants[config.variantNames[i]].percentageSplit;
+  }
+  return config.variantNames[i];
+}
+
+/**
+ * Replaces element with content from path
+ * @param {string} path
+ * @param {HTMLElement} element
+ */
+async function replaceInner(path, element) {
+  const plainPath = `${path}.plain.html`;
+  try {
+    const resp = await fetch(plainPath);
+    if (!resp.ok) {
+      console.log('error loading experiment content:', resp);
+      return null;
+    }
+    const html = await resp.text();
+    element.innerHTML = html;
+  } catch (e) {
+    console.log(`error loading experiment content: ${plainPath}`, e);
+  }
+  return null;
+}
+
+/**
+ * Replaces links in the head with the new host
+ * @param {string} origin
+ * @param {HTMLElement} element
+ */
+ async function replaceHeadLinks(origin, head) {
+  [...head.querySelectorAll('link[rel="stylesheet"],link[rel="icon"]')].forEach((link) => {
+    if (link.href[0] === '/') {
+      link.href = origin + link.href;
+    }
+  });
+  [...head.querySelectorAll('script[src][async],script[src][defer]')].forEach((script) => {
+    if (script.src[0] === '/') {
+      script.src = origin + script.src;
+    }
+  });
+}
+
+async function applyExperiments(config) {
+  try {
+    const experiment = getExperiment();
+    if (!experiment) {
+      return;
+    }
+
+    const usp = new URLSearchParams(window.location.search);
+    const [forcedExperiment, forcedVariant] = usp.has(config.queryParameter) ? usp.get(config.queryParameter).split('/') : [];
+    
+    const config = await getExperimentConfig(experiment, config);
+    console.debug(config);
+    if (toCamelCase(config.status) !== 'active' && !forcedExperiment) {
+      return;
+    }
+
+    config.run = forcedExperiment || isValidAudience(toClassName(config.audience));
+    window.hlx = window.hlx || {};
+    window.hlx.experiment = config;
+    console.debug('run', config.run, config.audience);
+    if (!config.run) {
+      return;
+    }
+
+    const forced = forcedVariant || getSavedExperimentVariant(config.id);
+    if (forced && config.variantNames.includes(forced)) {
+      config.selectedVariant = forced;
+    } else {
+      config.selectedVariant = getRandomVariant(config);
+    }
+
+    saveSelectedExperimentVariant(config.id, config.selectedVariant);
+    sampleRUM('experiment', { source: config.id, target: config.selectedVariant });
+    console.debug(`running experiment (${window.hlx.experiment.id}) -> ${window.hlx.experiment.selectedVariant}`);
+
+    if (config.selectedVariant === config.variantNames[0]) {
+      return;
+    }
+
+    const currentPath = window.location.pathname;
+    const { link } = config.variants[config.variantNames[0]];
+    if (link === currentPath || !link) {
+      return;
+    }
+
+    const url = new URL(link);
+    // Fullpage content experiment
+    if (window.location.origin === url.origin && url.pathname.split('.')[0] !== currentPath) {
+      await replaceInner(experimentPath, document.querySelector('main'));
+    } else if (window.location.origin !== url.origin) {
+      await replaceHeadLinks(url.origin, document.querySelector('head'));
+    }
+  } catch (e) {
+    console.log('error testing', e);
+  }
+}
+
+/**
  * loads everything needed to get to LCP.
  */
 async function loadEager(doc) {
+  console.log('evt: eager');
+  await applyExperiments({
+    basePath: '/experiments',
+    configFile: 'franklin-experiment',
+    parser: parseExperimentConfig,
+    queryParameter: 'experiment'
+  });
   decorateTemplateAndTheme();
   const main = doc.querySelector('main');
   if (main) {
@@ -678,6 +991,7 @@ async function loadEager(doc) {
  * loads everything that doesn't need to be delayed.
  */
 async function loadLazy(doc) {
+  console.log('evt: lazy');
   const main = doc.querySelector('main');
   await loadBlocks(main);
 
@@ -701,6 +1015,9 @@ async function loadLazy(doc) {
  */
 function loadDelayed() {
   // eslint-disable-next-line import/no-cycle
-  window.setTimeout(() => import('./delayed.js'), 3000);
+  window.setTimeout(() => {
+    console.log('evt: delayed');
+    import('./delayed.js')
+  }, 3000);
   // load anything that can be postponed to the latest here
 }
