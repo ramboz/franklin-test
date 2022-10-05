@@ -371,7 +371,6 @@ export function buildBlock(blockName, content) {
  */
 export async function loadBlock(block, eager = false) {
   if (!(block.getAttribute('data-block-status') === 'loading' || block.getAttribute('data-block-status') === 'loaded')) {
-    block.setAttribute('data-block-status', 'loading');
     const blockName = block.getAttribute('data-block-name');
     let cssPath = `${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.css`;
     let jsPath = `${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.js`;
@@ -381,10 +380,7 @@ export async function loadBlock(block, eager = false) {
       if (experiment.selectedVariant !== experiment.variantNames[0] && experiment.blocks && experiment.blocks.includes(blockName)) {
         const variant = experiment.variants[experiment.selectedVariant];
         if (/^https?:\/\//.test(variant.link)) {
-          const { origin, pathname } = new URL(variant.link);
-          if (pathname !== '/') {
-            await replaceInner(variant.link, block);
-          }
+          const { origin } = new URL(variant.link);
           if (origin !== window.location.origin) {
             cssPath = `${origin}${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.css`;
             jsPath = `${origin}${window.hlx.codeBasePath}/blocks/${blockName}/${blockName}.js`;
@@ -395,6 +391,7 @@ export async function loadBlock(block, eager = false) {
         }
       }
     }
+    block.setAttribute('data-block-status', 'loading');
 
     try {
       const cssLoaded = new Promise((resolve) => {
@@ -876,8 +873,9 @@ function getRandomVariant(config) {
  * Replaces element with content from path
  * @param {string} path
  * @param {HTMLElement} element
+ * @param {boolean} isBlock
  */
-async function replaceInner(path, element) {
+async function replaceInner(path, element, isBlock = false) {
   const plainPath = `${path}.plain.html`;
   try {
     const resp = await fetch(plainPath);
@@ -886,7 +884,14 @@ async function replaceInner(path, element) {
       return null;
     }
     const html = await resp.text();
-    element.innerHTML = html;
+    if (isBlock) {
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      element.replaceWith(div.children[0].children[0]);
+    } else {
+      element.innerHTML = html;
+    }
+    
   } catch (e) {
     console.log(`error loading experiment content: ${plainPath}`, e);
   }
@@ -951,17 +956,24 @@ async function applyExperiments(config) {
     }
 
     const currentPath = window.location.pathname;
-    const { link } = experimentConfig.variants[experimentConfig.variantNames[0]];
+    const { link } = experimentConfig.variants[experimentConfig.selectedVariant];
     if (link === currentPath || !link) {
       return;
     }
 
-    const url = new URL(link);
+    const isUrl = /^https?:\/\//.test(link);
     // Fullpage content experiment
-    if (window.location.origin === url.origin && url.pathname.split('.')[0] !== currentPath) {
-      await replaceInner(experimentPath, document.querySelector('main'));
-    } else if (window.location.origin !== url.origin) {
-      await replaceHeadLinks(url.origin, document.querySelector('head'));
+    if (!experimentConfig.blocks && link !== currentPath) {
+      await replaceInner(link, document.querySelector('main'));
+    }
+    // Fullpage code experiment
+    else if (!experimentConfig.blocks && isUrl) {
+      await replaceHeadLinks(new URL(link).origin, document.querySelector('head'));
+    }
+    // Block content experiment
+    else if (experimentConfig.blocks && experimentConfig.blocks.length && /^https?:\/\//.test(link) && new URL(link).pathname != '/') {
+      const selector = experimentConfig.blocks.map((blockName) => `.${blockName}`).join(',');
+      await Promise.all([...document.querySelectorAll(selector)].map((block) => replaceInner(link, block, true)));
     }
   } catch (e) {
     console.log('error testing', e);
