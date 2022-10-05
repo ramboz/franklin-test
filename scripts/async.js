@@ -1,1 +1,1 @@
-setTimeout(() => console.log('evt: async'));
+setTimeout(() => console.log('evt: async alt'));

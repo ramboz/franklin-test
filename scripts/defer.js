@@ -1,1 +1,3 @@
-setTimeout(() => console.log('evt: defer'));
+setTimeout(() => {
+  console.log('evt: defer alt');
+});
