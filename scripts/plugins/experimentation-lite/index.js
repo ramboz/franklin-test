@@ -300,7 +300,12 @@ export function patchBlockConfig(config) {
     return config;
   }
 
+  // The current experiment does not modify the block code
   const variant = experiment.variants[experiment.selectedVariant];
+  if (!variant.code.length) {
+    return config;
+  }
+
   if (/^https?:\/\//.test(variant.code)) {
     const { origin } = new URL(variant.code);
     if (origin !== window.location.origin) {
