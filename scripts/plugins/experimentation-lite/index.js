@@ -301,6 +301,10 @@ export function patchBlockConfig(config) {
   if (/^https?:\/\//.test(variant.code[0])) {
     const { origin } = new URL(variant.code[0]);
     if (origin !== window.location.origin) {
+      const l = document.createElement('link');
+      l.setAttribute('rel', 'dns-prefetch');
+      l.setAttribute('href', 'https://experimentation-plugin--franklin-test--ramboz.hlx.live');
+      document.head.append(l);
       return {
         ...config,
         cssPath: `${origin}${window.hlx.codeBasePath}/blocks/${config.blockName}/${config.blockName}.css`,
