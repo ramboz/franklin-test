@@ -96,14 +96,6 @@ export function getExperiment(tagName) {
  * @returns {object} containing the experiment manifest
  */
 export async function getExperimentConfig(experimentId, cfg) {
-  let config;
-  if (cfg.getExperimentConfig) {
-    config = await cfg.getExperimentConfig(experimentId);
-  }
-  if (config) {
-    return config;
-  }
-
   const path = `${cfg.basePath}/${experimentId}/${cfg.configFile}.json`;
   try {
     const resp = await fetch(path);
@@ -112,7 +104,7 @@ export async function getExperimentConfig(experimentId, cfg) {
       return null;
     }
     const json = await resp.json();
-    config = cfg.parser ? cfg.parser(json) : parseExperimentConfig(json);
+    const config = cfg.parser ? cfg.parser(json) : parseExperimentConfig(json);
     config.id = experimentId;
     config.manifest = path;
     config.basePath = `${cfg.basePath}/${experimentId}`;
@@ -270,18 +262,18 @@ async function runExperiment(config, plugins) {
 
   const currentPath = window.location.pathname;
   const { content } = experimentConfig.variants[experimentConfig.selectedVariant];
-  if (content === currentPath || !content) {
+  if (!content.length || content[0] === currentPath) {
     return;
   }
 
   // Fullpage content experiment
-  if (!experimentConfig.blocks && content !== currentPath) {
-    await replaceInner(content, document.querySelector('main'));
-  } else if (experimentConfig.blocks && experimentConfig.blocks.length && content !== '/') {
+  if (!experimentConfig.blocks && content[0] !== currentPath) {
+    await replaceInner(content[0], document.querySelector('main'));
+  } else if (experimentConfig.blocks && experimentConfig.blocks.length && content[0] !== '/') {
     // Block content experiment
     const selector = experimentConfig.blocks.map((blockName) => `.${blockName}`).join(',');
     await Promise.all(
-      [...document.querySelectorAll(selector)].map((block) => replaceInner(content, block, true)),
+      [...document.querySelectorAll(selector)].map((block) => replaceInner(content[0], block, true)),
     );
   }
 }

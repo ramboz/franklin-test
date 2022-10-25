@@ -93,7 +93,7 @@ async function createExperiment() {
     <div class="hlx-popup-header">
       <div>
         <h4>${config.experimentName}</h4>
-        <div class="hlx-details">${config.status}${config.audience ? ', ' : ''}${config.audience}${config.variants.control.code.length ? ', Blocks: ' : ''}${config.variants.control.code.join(',')}</div>
+        <div class="hlx-details">${config.status}${config.audience ? ', ' : ''}${config.audience}${config.variants[config.variantNames[0]].code.length ? ', Blocks: ' : ''}${config.variants[config.variantNames[0]].code.join(',')}</div>
         <div class="hlx-info">How is it going?</div>
       </div>
       <div>
@@ -119,6 +119,9 @@ async function createExperiment() {
     }
     fetch(resultsURL.href).then(async (response) => {
       const { results } = await response.json();
+      if (!results.length) {
+        return;
+      }
 
       const numberify = (obj) => Object.entries(obj).reduce((o, [k, v]) => {
         o[k] = Number.parseFloat(v);
