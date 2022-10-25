@@ -298,8 +298,8 @@ export function patchBlockConfig(config) {
     return config;
   }
 
-  if (/^https?:\/\//.test(variant.code)) {
-    const { origin } = new URL(variant.code);
+  if (/^https?:\/\//.test(variant.code[0])) {
+    const { origin } = new URL(variant.code[0]);
     if (origin !== window.location.origin) {
       return {
         ...config,
@@ -310,8 +310,8 @@ export function patchBlockConfig(config) {
   } else {
     return {
       ...config,
-      cssPath: `${window.hlx.codeBasePath}${experiment.basePath}/${variant.code}/${config.blockName}.css`,
-      jsPath: `${window.hlx.codeBasePath}${experiment.basePath}/${variant.code}/${config.blockName}.js`,
+      cssPath: `${window.hlx.codeBasePath}${variant.code[0]}/${config.blockName}.css`,
+      jsPath: `${window.hlx.codeBasePath}${variant.code[0]}/${config.blockName}.js`,
     };
   }
   return config;
