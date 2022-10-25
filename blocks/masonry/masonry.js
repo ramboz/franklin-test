@@ -1,4 +1,4 @@
-import { createOptimizedPicture } from '../../scripts/scripts.js';
+import { createOptimizedPicture } from '../../scripts/lib-franklin.js';
 
 export default async function decorate(block) {
   [...block.querySelectorAll('picture')].forEach((picture) => {
