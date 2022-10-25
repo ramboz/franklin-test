@@ -48,15 +48,15 @@ function parseExperimentConfig(json) {
     config.variants = {};
     json.variants.data.forEach((row) => {
       const {
-        Name, Label, Split, Page, Block,
+        Name, Label, Split, Pages, Blocks,
       } = row;
       const variantName = toCamelCase(Name);
       config.variantNames.push(variantName);
       config.variants[variantName] = {
         label: Label,
         percentageSplit: Split,
-        content: Page.trim(),
-        code: Block.trim(),
+        content: Pages ? Pages.trim().split(',') : [],
+        code: Blocks ? Blocks.trim().split(',') : [],
       };
     });
     return config;
@@ -112,7 +112,7 @@ export async function getExperimentConfig(experimentId, cfg) {
       return null;
     }
     const json = await resp.json();
-    config = parseExperimentConfig(json, cfg);
+    config = cfg.parser ? cfg.parser(json) : parseExperimentConfig(json);
     config.id = experimentId;
     config.manifest = path;
     config.basePath = `${cfg.basePath}/${experimentId}`;
@@ -232,7 +232,7 @@ async function runExperiment(config, plugins) {
 
   const experimentConfig = await getExperimentConfig(experiment, config);
   console.debug(experimentConfig);
-  if (toCamelCase(experimentConfig.status) !== 'active' && !forcedExperiment) {
+  if (!experimentConfig || toCamelCase(experimentConfig.status) !== 'active' && !forcedExperiment) {
     return;
   }
 
@@ -323,7 +323,6 @@ export function patchBlockConfig(config) {
 export async function preEager(customOptions, plugins) {
   const options = {
     ...DEFAULT_OPTIONS,
-    parser: parseExperimentConfig,
     ...customOptions,
   };
   await runExperiment(options, plugins);

@@ -3,6 +3,7 @@ import {
   init,
   loadBlock,
   loadCSS,
+  toCamelCase,
   withPlugin,
 } from './lib-franklin.js';
 
@@ -17,6 +18,44 @@ await withPlugin('./plugins/rum.js', { generation: 'project-1' });
 await withPlugin('./plugins/experimentation-lite/index.js', {
   basePath: '/franklin-experiments',
   configFile: 'franklin-experiment',
+  parser: (json) => {
+    const config = {};
+    try {
+      json.settings.data.forEach((row) => {
+        const prop = toCamelCase(row.Name);
+        switch (prop) {
+          case 'audience':
+          case 'status':
+            config[prop] = row.Value;
+            break;
+          case 'experimentName':
+            config.label = row.Value;
+          case 'blocks':
+            config[prop] = row.Value.split(/[,\n]/);
+        }
+      });
+
+      config.variantNames = [];
+      config.variants = {};
+      json.variants.data.forEach((row) => {
+        const {
+          Name, Label, Split, Page, Block,
+        } = row;
+        const variantName = toCamelCase(Name);
+        config.variantNames.push(variantName);
+        config.variants[variantName] = {
+          label: Label,
+          percentageSplit: Split,
+          content: Page ? Page.trim().split(',') : [],
+          code: Block ? Block.trim().split(',') : [],
+        };
+      });
+      return config;
+    } catch (e) {
+      console.log('error parsing experiment config:', e);
+    }
+    return null;
+  }
 });
 
 function buildHeroBlock(main) {
